@@ -87,6 +87,19 @@ restore_configuration_files() {
     fi
 }
 
+# Function to restart the Marzban service
+restart_marzban() {
+    read -p "Do you want to restart Marzban service? (y/n): " restart_choice
+    if [[ "$restart_choice" == "y" ]]; then
+        # Restart Marzban service
+        echo "Restarting Marzban service..."
+        systemctl restart marzban
+        echo "Marzban service restarted successfully."
+    else
+        echo "Skipping Marzban service restart."
+    fi
+}
+
 # Main script logic
 while true; do
     show_menu
@@ -110,3 +123,7 @@ while true; do
             ;;
     esac
 done
+
+# After completing the restoration, ask about restarting Marzban
+restart_marzban
+
