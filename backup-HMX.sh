@@ -147,44 +147,47 @@ elif [[ "$xmh" == "x" ]]; then
     MasterHide="MasterHide x-ui backup"
 
 elif [[ "$xmh" == "h" ]]; then
-# Hiddify Backup
+# Hiddify Backup Script
 echo "Performing Hiddify backup..."
 
+BACKUP_DIR="/opt/hiddify-manager/hiddify-panel/backup"
+BACKUP_FILE="/root/backup-HMX-h-$(date +%Y%m%d%H%M%S).zip"
+HIDDIFY_PYTHON="/usr/bin/python3" # Adjust if necessary
+
 # Ensure the backup directory exists
-if [[ ! -d "/opt/hiddify-manager/hiddify-panel/backup" ]]; then
-    echo "Backup directory does not exist."
+if [[ ! -d "$BACKUP_DIR" ]]; then
+    echo "Backup directory ($BACKUP_DIR) does not exist."
     exit 1
 fi
 
-# Set the backup file path
-BACKUP_FILE="/root/backup-HMX-h-$(date +%Y%m%d%H%M%S).zip"
-
-# Ensure the backup directory is clean by deleting old files if there are more than 100
-if [ $(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
+# Cleanup older backups if there are more than 100 files
+if [ $(find "$BACKUP_DIR" -type f | wc -l) -gt 100 ]; then
     echo "Too many backup files. Cleaning up older files..."
-    find /opt/hiddify-manager/hiddify-panel/backup -type f -delete
+    find "$BACKUP_DIR" -type f -printf '%T+ %p\n' | sort | head -n -100 | cut -d' ' -f2- | xargs rm -f
 fi
 
-# Execute the Hiddify panel backup (adjust path to actual usage)
-python3 -m hiddifypanel backup
+# Execute the Hiddify panel backup
+echo "Running Hiddify panel backup..."
+$HIDDIFY_PYTHON -m hiddifypanel backup
+if [[ $? -ne 0 ]]; then
+    echo "Backup command failed!"
+    exit 1
+fi
 
-# Find the latest .json backup file in the directory
-latest_file=$(ls -t /opt/hiddify-manager/hiddify-panel/backup/*.json | head -n1)
-
-# Check if a backup file exists
+# Find the latest .json backup file
+latest_file=$(ls -t "$BACKUP_DIR"/*.json 2>/dev/null | head -n1)
 if [[ -z "$latest_file" ]]; then
     echo "No backup files found!"
     exit 1
 fi
 
 # Zip the latest backup file
-zip $BACKUP_FILE "$latest_file"
-
-# Check if the backup was successful
+echo "Zipping the latest backup file: $latest_file"
+zip "$BACKUP_FILE" "$latest_file"
 if [[ $? -eq 0 ]]; then
     echo "Backup completed successfully: $BACKUP_FILE"
 else
-    echo "Backup failed."
+    echo "Backup failed during zipping."
     exit 1
 fi
 
