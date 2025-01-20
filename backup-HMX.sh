@@ -123,6 +123,7 @@ zip -r /root/backup-HMX.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env 
 zip -r /root/backup-HMX.zip /var/lib/marzban/mysql/db-backup/*
 rm -rf /var/lib/marzban/mysql/db-backup/*
 EOF
+)
         MasterHide="MasterHide Marzban MySQL backup"
 
     else
