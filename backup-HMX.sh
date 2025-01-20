@@ -147,27 +147,27 @@ elif [[ "$xmh" == "x" ]]; then
     MasterHide="MasterHide x-ui backup"
 
 elif [[ "$xmh" == "h" ]]; then
-    # Hiddify Backup
-    echo "Performing Hiddify backup..."
-    if [[ ! -d "/opt/hiddify-config/hiddify-panel/backup" ]]; then
-        echo "Backup directory does not exist."
-        exit 1
-    fi
+# Hiddify Backup
+echo "Performing Hiddify backup..."
+if [[ ! -d "/opt/hiddify-manager/hiddify-panel/backup" ]]; then
+    echo "Backup directory does not exist."
+    exit 1
+fi
 
-    BACKUP_FILE="/root/backup-HMX-h-$(date +%Y%m%d%H%M%S).zip"
-    ZIP=$(cat <<EOF
-cd /opt/hiddify-config/hiddify-panel/
-if [ \$(find /opt/hiddify-config/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
-    find /opt/hiddify-config/hiddify-panel/backup -type f -delete
+BACKUP_FILE="/root/backup-HMX-h-$(date +%Y%m%d%H%M%S).zip"
+ZIP=$(cat <<EOF
+cd /opt/hiddify-manager/hiddify-panel/
+if [ \$(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
+    find /opt/hiddify-manager/hiddify-panel/backup -type f -delete
 fi
 python3 -m hiddifypanel backup
-cd /opt/hiddify-config/hiddify-panel/backup
+cd /opt/hiddify-manager/hiddify-panel/backup
 latest_file=\$(ls -t *.json | head -n1)
 rm -f $BACKUP_FILE
-zip $BACKUP_FILE /opt/hiddify-config/hiddify-panel/backup/\$latest_file
+zip $BACKUP_FILE /opt/hiddify-manager/hiddify-panel/backup/\$latest_file
 EOF
-    )
-    MasterHide="MasterHide Hiddify backup"
+)
+MasterHide="MasterHide Hiddify backup"
 
 else
     echo "Please choose m, x, or h only!"
