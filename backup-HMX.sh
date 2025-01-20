@@ -149,24 +149,45 @@ elif [[ "$xmh" == "x" ]]; then
 elif [[ "$xmh" == "h" ]]; then
 # Hiddify Backup
 echo "Performing Hiddify backup..."
+
+# Ensure the backup directory exists
 if [[ ! -d "/opt/hiddify-manager/hiddify-panel/backup" ]]; then
     echo "Backup directory does not exist."
     exit 1
 fi
 
+# Set the backup file path
 BACKUP_FILE="/root/backup-HMX-h-$(date +%Y%m%d%H%M%S).zip"
-ZIP=$(cat <<EOF
-cd /opt/hiddify-manager/hiddify-panel/
-if [ \$(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
+
+# Ensure the backup directory is clean by deleting old files if there are more than 100
+if [ $(find /opt/hiddify-manager/hiddify-panel/backup -type f | wc -l) -gt 100 ]; then
+    echo "Too many backup files. Cleaning up older files..."
     find /opt/hiddify-manager/hiddify-panel/backup -type f -delete
 fi
+
+# Execute the Hiddify panel backup (adjust path to actual usage)
 python3 -m hiddifypanel backup
-cd /opt/hiddify-manager/hiddify-panel/backup
-latest_file=\$(ls -t *.json | head -n1)
-rm -f $BACKUP_FILE
-zip $BACKUP_FILE /opt/hiddify-manager/hiddify-panel/backup/\$latest_file
-EOF
-)
+
+# Find the latest .json backup file in the directory
+latest_file=$(ls -t /opt/hiddify-manager/hiddify-panel/backup/*.json | head -n1)
+
+# Check if a backup file exists
+if [[ -z "$latest_file" ]]; then
+    echo "No backup files found!"
+    exit 1
+fi
+
+# Zip the latest backup file
+zip $BACKUP_FILE "$latest_file"
+
+# Check if the backup was successful
+if [[ $? -eq 0 ]]; then
+    echo "Backup completed successfully: $BACKUP_FILE"
+else
+    echo "Backup failed."
+    exit 1
+fi
+
 MasterHide="MasterHide Hiddify backup"
 
 else
