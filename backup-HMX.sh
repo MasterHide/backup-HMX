@@ -126,22 +126,44 @@ case "$software_choice" in
         ;;
     h)
         echo "Performing Hiddify backup..."
-        read -r -p "Enter Hiddify API Key: " api_key
-        read -r -p "Enter IP/Proxy Path: " ip_proxy_path
+        
+        # Ask for Hiddify Panel details
+        read -r -p "Enter the domain or IP of your Hiddify panel: " domain_or_ip
+        read -r -p "Enter the admin proxy path (e.g., /admin_proxy_path): " admin_proxy_path
+        read -r -p "Enter your Hiddify API Key: " api_key
 
-        response=$(curl -s -o /root/backup-HMX-h.zip -w "%{http_code}" -X POST \
-            "https://api.hiddify.xyz/api/backup" \
-            -H "Authorization: Bearer $api_key" \
-            -d "ip_proxy=$ip_proxy_path")
+        # Construct the base URL for the API
+        base_url="https://$domain_or_ip$admin_proxy_path/api/v2/panel"
 
-        if [[ "$response" != "200" ]]; then
-            echo "Hiddify backup failed. HTTP response code: $response"
+        # Example endpoint: Check the version of the panel to verify connection
+        response=$(curl -s -w "%{http_code}" -o /tmp/hiddify_response.json -X GET "$base_url/version" \
+            -H "Hiddify-API-Key: $api_key")
+        http_code="${response: -3}"
+
+        # Check if the response is successful (HTTP code 200)
+        if [[ "$http_code" -eq 200 ]]; then
+            echo "Successfully connected to the Hiddify panel. Proceeding with backup..."
+
+            # Perform the backup (replace with the actual backup logic for your use case)
+            curl -s -X POST "$base_url/backup" \
+                -H "Hiddify-API-Key: $api_key" \
+                -d "ip_proxy=$domain_or_ip$admin_proxy_path" -o /root/backup-HMX-h.zip
+
+            # Check if the backup file was created successfully
+            if [[ ! -f /root/backup-HMX-h.zip ]]; then
+                echo "Error: Backup file not created."
+                send_telegram_message "❌ Hiddify backup failed: File not created."
+                exit 1
+            fi
+
+            BACKUP_FILE="/root/backup-HMX-h.zip"
+            backup_caption="Hiddify Backup"
+            echo "Backup completed successfully."
+        else
+            echo "Error: Failed to connect to Hiddify API. HTTP code: $http_code"
             send_telegram_message "❌ Hiddify backup failed."
             exit 1
         fi
-
-        BACKUP_FILE="/root/backup-HMX-h.zip"
-        backup_caption="Hiddify Backup"
         ;;
 esac
 
