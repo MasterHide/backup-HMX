@@ -181,15 +181,47 @@ if [[ -z "$latest_file" ]]; then
     exit 1
 fi
 
-# Zip the latest backup file
-echo "Zipping the latest backup file: $latest_file"
-zip "$BACKUP_FILE" "$latest_file"
+# Remove Redis and log-level entries from the latest backup
+echo "Cleaning backup file to remove Redis and log-level entries..."
+
+# Create a temporary cleaned backup file
+cleaned_file="${latest_file%.json}-cleaned.json"
+
+# Use Python to modify the JSON and remove Redis and log-level
+$HIDDIFY_PYTHON -c "
+import json
+
+# Load the latest backup JSON file
+with open('$latest_file', 'r') as f:
+    backup_data = json.load(f)
+
+# Remove Redis and log-level entries if they exist
+backup_data.pop('redis', None)
+backup_data.pop('log_level', None)
+
+# Save the cleaned data to a new file
+with open('$cleaned_file', 'w') as f:
+    json.dump(backup_data, f, indent=4)
+"
+
+# Check if the cleaned file was created successfully
+if [[ ! -f "$cleaned_file" ]]; then
+    echo "Failed to clean the backup file!"
+    exit 1
+fi
+
+# Zip the cleaned backup file
+echo "Zipping the cleaned backup file: $cleaned_file"
+zip "$BACKUP_FILE" "$cleaned_file"
 if [[ $? -eq 0 ]]; then
     echo "Backup completed successfully: $BACKUP_FILE"
 else
     echo "Backup failed during zipping."
     exit 1
 fi
+
+# Optionally, clean up the temporary cleaned JSON file
+rm -f "$cleaned_file"
 
 MasterHide="MasterHide Hiddify backup"
 
