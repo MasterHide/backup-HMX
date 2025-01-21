@@ -3,298 +3,158 @@
 # Exit on error
 set -e
 
-# Step 1: Bot Token
-echo "Step 1: Enter your Telegram Bot Token."
-while [[ -z "$tk" ]]; do
-    echo "Bot token: "
-    read -r tk
-    if [[ -z "$tk" ]]; then
-        echo "Invalid input. Token cannot be empty."
-    fi
-done
-echo "Bot token received successfully."
-
-# Step 2: Chat ID
-echo "Step 2: Enter your Telegram Chat ID."
-while [[ -z "$chatid" ]]; do
-    echo "Chat ID: "
-    read -r chatid
-    if [[ -z "$chatid" ]]; then
-        echo "Invalid input. Chat ID cannot be empty."
-    elif [[ ! $chatid =~ ^\-?[0-9]+$ ]]; then
-        echo "${chatid} is not a valid number."
-    fi
-done
-echo "Chat ID received successfully."
-
-# Step 3: Caption for Backup File
-echo "Step 3: Enter a caption to identify your backup (e.g., your domain)."
-read -r caption
-echo "Caption set as: $caption"
-
-# Step 4: Choose Cronjob Schedule
-echo "Step 4: Choose the schedule for periodic backups."
-while true; do
-    echo "1. Every 3 hours"
-    echo "2. Every 6 hours"
-    echo "Enter your choice (1 or 2):"
-    read -r cron_choice
-    case "$cron_choice" in
-    1)
-        cron_time="0 */3 * * *" # Every 3 hours
-        break
-        ;;
-    2)
-        cron_time="0 */6 * * *" # Every 6 hours
-        break
-        ;;
-    *)
-        echo "Invalid choice. Please enter 1 for 3-hour intervals or 2 for 6-hour intervals."
-        ;;
-    esac
-done
-echo "Cronjob schedule set to: $cron_time"
-
-# Step 5: Choose Backup Software
-echo "Step 5: Choose the software to back up."
-while [[ -z "$xmh" ]]; do
-    echo "Choose software (x-ui, Marzban, or Hiddify) [x/m/h]: "
-    read -r xmh
-    if [[ ! $xmh =~ ^[xmh]$ ]]; then
-        echo "Invalid choice. Please choose x, m, or h."
-    fi
-done
-echo "Software chosen: $xmh"
-
-# Step 6: Clear Previous Cronjobs (Optional)
-echo "Step 6: Do you want to clear previous cronjobs? [y/n]: "
-read -r crontabs
-if [[ "$crontabs" == "y" ]]; then
-    sudo crontab -l | grep -vE '/root/backup-HMX.+\.sh' | crontab -
-    echo "Previous cronjobs cleared."
-else
-    echo "No cronjobs cleared."
-fi
-
-# Step 7: Backup Logic Based on Software Chosen
-# --------------------------------------------------------
-if [[ "$xmh" == "m" ]]; then
-    # Marzban Backup
-    echo "Performing Marzban backup..."
-    dir=$(find /opt /root -type d -iname "marzban" -print -quit)
-    if [[ -z "$dir" ]]; then
-        echo "The Marzban directory does not exist."
-        exit 1
-    fi
-    echo "The Marzban directory exists at $dir"
-
-    if [[ -d "/var/lib/marzban/mysql" ]]; then
-        echo "MySQL is detected for Marzban. Preparing database backup..."
-
-        # Clean up the .env file for correct formatting
-        sed -i -e 's/\s*=\s*/=/' -e 's/\s*:\s*/:/' -e 's/^\s*//' /opt/marzban/.env
-
-        # Ensure backup directory exists in MySQL
-        docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/mysql/db-backup"
-        source /opt/marzban/.env
-
-        # Create backup script for MySQL databases
-        cat > "/var/lib/marzban/mysql/backup-HMX.sh" <<EOL
-#!/bin/bash
-
-USER="root"
-PASSWORD="\$MYSQL_ROOT_PASSWORD"
-
-databases=\$(mysql --user=\$USER --password=\$PASSWORD -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)
-
-for db in \$databases; do
-    if [[ "\$db" != "information_schema" ]] && [[ "\$db" != "mysql" ]] && [[ "\$db" != "performance_schema" ]] && [[ "\$db" != "sys" ]] ; then
-        echo "Dumping database: \$db"
-        mysqldump --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/mysql/db-backup/\$db.sql
-    fi
-done
-EOL
-        chmod +x /var/lib/marzban/mysql/backup-HMX.sh
-
-        # Backup command including MySQL dump and Marzban files
-        ZIP=$(cat <<EOF
-docker exec marzban-mysql-1 bash -c "/var/lib/marzban/mysql/backup-HMX.sh"
-zip -r /root/backup-HMX.zip /opt/marzban/* /var/lib/marzban/* /opt/marzban/.env -x /var/lib/marzban/mysql/*
-zip -r /root/backup-HMX.zip /var/lib/marzban/mysql/db-backup/*
-rm -rf /var/lib/marzban/mysql/db-backup/*
-EOF
-)
-        MasterHide="MasterHide Marzban MySQL backup"
-
-    else
-        # Non-MySQL Marzban backup logic
-        ZIP="zip -r /root/backup-HMX.zip ${dir}/* /var/lib/marzban/* /opt/marzban/.env"
-        MasterHide="MasterHide Marzban non-MySQL backup"
-    fi
-
-elif [[ "$xmh" == "x" ]]; then
-    # x-ui Backup
-    echo "Performing x-ui backup..."
-    dbDir=$(find /etc -type d -iname "x-ui*" -print -quit)
-    configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit)
-
-    if [[ -z "$dbDir" || -z "$configDir" ]]; then
-        echo "One or both x-ui directories do not exist."
-        exit 1
-    fi
-
-    ZIP="zip /root/backup-HMX-x.zip ${dbDir}/x-ui.db ${configDir}/config.json"
-    MasterHide="MasterHide x-ui backup"
-
-elif [[ "$xmh" == "h" ]]; then
-# Hiddify Backup Script
-echo "Performing Hiddify backup..."
-
-BACKUP_DIR="/opt/hiddify-manager/hiddify-panel/backup"
-BACKUP_FILE="/root/backup-HMX-h-$(date +%Y%m%d%H%M%S).zip"
-HIDDIFY_PYTHON="/usr/bin/python3" # Adjust if necessary
-
-# Ensure the backup directory exists
-if [[ ! -d "$BACKUP_DIR" ]]; then
-    echo "Backup directory ($BACKUP_DIR) does not exist."
-    exit 1
-fi
-
-# Cleanup older backups if there are more than 100 files
-if [ $(find "$BACKUP_DIR" -type f | wc -l) -gt 100 ]; then
-    echo "Too many backup files. Cleaning up older files..."
-    find "$BACKUP_DIR" -type f -printf '%T+ %p\n' | sort | head -n -100 | cut -d' ' -f2- | xargs rm -f
-fi
-
-# Execute the Hiddify panel backup
-echo "Running Hiddify panel backup..."
-$HIDDIFY_PYTHON -m hiddifypanel backup
-if [[ $? -ne 0 ]]; then
-    echo "Backup command failed!"
-    exit 1
-fi
-
-# Find the latest .json backup file
-latest_file=$(ls -t "$BACKUP_DIR"/*.json 2>/dev/null | head -n1)
-if [[ -z "$latest_file" ]]; then
-    echo "No backup files found!"
-    exit 1
-fi
-
-# Remove Redis and log-level entries from the latest backup
-echo "Cleaning backup file to remove Redis and log-level entries..."
-
-# Create a temporary cleaned backup file
-cleaned_file="${latest_file%.json}-cleaned.json"
-
-# Use Python to modify the JSON and remove Redis and log-level
-$HIDDIFY_PYTHON -c "
-import json
-
-# Load the latest backup JSON file
-with open('$latest_file', 'r') as f:
-    backup_data = json.load(f)
-
-# Remove Redis and log-level entries if they exist
-backup_data.pop('redis', None)
-backup_data.pop('log_level', None)
-
-# Save the cleaned data to a new file
-with open('$cleaned_file', 'w') as f:
-    json.dump(backup_data, f, indent=4)
-"
-
-# Check if the cleaned file was created successfully
-if [[ ! -f "$cleaned_file" ]]; then
-    echo "Failed to clean the backup file!"
-    exit 1
-fi
-
-# Zip the cleaned backup file
-echo "Zipping the cleaned backup file: $cleaned_file"
-zip "$BACKUP_FILE" "$cleaned_file"
-if [[ $? -eq 0 ]]; then
-    echo "Backup completed successfully: $BACKUP_FILE"
-else
-    echo "Backup failed during zipping."
-    exit 1
-fi
-
-# Optionally, clean up the temporary cleaned JSON file
-rm -f "$cleaned_file"
-
-MasterHide="MasterHide Hiddify backup"
-
-else
-    echo "Please choose m, x, or h only!"
-    exit 1
-fi
-
-
-# Step 8: Trim the Caption
-trim() {
-    local var="$*"
-    var="${var#"${var%%[![:space:]]*}"}"
-    var="${var%"${var##*[![:space:]]}"}"
-    echo -n "$var"
+# Function to send Telegram notifications
+send_telegram_message() {
+    local message="$1"
+    local chat_id="$TELEGRAM_CHAT_ID"
+    local bot_token="$TELEGRAM_BOT_TOKEN"
+    local telegram_url="https://api.telegram.org/bot$bot_token/sendMessage"
+    
+    curl -s -X POST "$telegram_url" \
+        -d "chat_id=$chat_id" \
+        -d "text=$message" > /dev/null
 }
 
-IP=$(ip route get 1 | sed -n 's/^.*src \([0-9.]*\) .*$/\1/p')
-caption="${caption}\n\n${MasterHide}\n<code>${IP}</code>\nCreated by @MasterHide - https://github.com/MasterHide/backup"
-comment=$(echo -e "$caption" | sed 's/<code>//g;s/<\/code>//g')
-comment=$(trim "$comment")
+# Function to send a file to Telegram
+send_telegram_file() {
+    local file_path="$1"
+    local chat_id="$TELEGRAM_CHAT_ID"
+    local bot_token="$TELEGRAM_BOT_TOKEN"
+    local telegram_url="https://api.telegram.org/bot$bot_token/sendDocument"
 
-# Step 9: Install zip (if not installed)
-if ! command -v zip &> /dev/null; then
-    sudo apt install zip -y
-fi
+    curl -s -X POST "$telegram_url" \
+        -F "chat_id=$chat_id" \
+        -F "document=@$file_path" > /dev/null
+}
 
-# Step 10: Ensure curl is installed
-if ! command -v curl &> /dev/null; then
-    sudo apt install curl -y
-fi
-
-# Step 11: Send the backup to Telegram
-cat > "/root/backup-HMX-${xmh}.sh" <<EOL
-rm -rf /root/backup-HMX-${xmh}.zip
-$ZIP
-echo -e "$comment" | zip -z /root/backup-HMX-${xmh}.zip
-curl -F chat_id="${chatid}" -F caption=\$'${caption}' -F parse_mode="HTML" -F document=@"/root/backup-HMX-${xmh}.zip" https://api.telegram.org/bot${tk}/sendDocument
-EOL
-
-# Step 12: Add cronjob for periodic execution
-(crontab -l -u root | grep -v "/root/backup-HMX-${xmh}.sh"; echo "${cron_time} /bin/bash /root/backup-HMX-${xmh}.sh >/dev/null 2>&1") | crontab -u root -
-
-# Step 13: Clone or Update the repository
-repo_url="https://github.com/MasterHide/backup-HMX.git"
-repo_dir="/opt/backup-HMX"
-
-if [[ ! -d "$repo_dir" ]]; then
-    git clone "$repo_url" "$repo_dir"
-    echo "Repository cloned to $repo_dir."
-else
-    cd "$repo_dir" && git pull
-    echo "Repository updated."
-fi
-
-# Step 14: Create 'menux' Command
-echo "Step 14: Do you want to create the 'menux' command to access the restore_backup.sh script? [y/n]"
-read -r create_menux
-if [[ "$create_menux" == "y" ]]; then
-    if [[ ! -f "$repo_dir/restore_backup.sh" ]]; then
-        echo "Error: restore_backup.sh does not exist."
+# Ensure required dependencies are installed
+dependencies=(curl zip mysqldump docker grep)
+for cmd in "${dependencies[@]}"; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: $cmd is required but not installed. Please install it (e.g., sudo apt install $cmd)."
         exit 1
     fi
-    sudo ln -sf "$repo_dir/restore_backup.sh" /usr/local/bin/menux
-    sudo chmod +x /usr/local/bin/menux
-    echo "'menux' command has been created."
+done
+
+# Step 1: Telegram Bot Token
+while [[ -z "$TELEGRAM_BOT_TOKEN" ]]; do
+    read -r -p "Enter your Telegram Bot Token: " TELEGRAM_BOT_TOKEN
+    [[ -z "$TELEGRAM_BOT_TOKEN" ]] && echo "Bot Token cannot be empty."
+done
+
+# Step 2: Telegram Chat ID
+while [[ -z "$TELEGRAM_CHAT_ID" ]]; do
+    read -r -p "Enter your Telegram Chat ID: " TELEGRAM_CHAT_ID
+    if [[ -z "$TELEGRAM_CHAT_ID" || ! "$TELEGRAM_CHAT_ID" =~ ^-?[0-9]+$ ]]; then
+        echo "Invalid Chat ID. Please enter a valid number."
+        TELEGRAM_CHAT_ID=""
+    fi
+done
+
+# Step 3: Caption for Backup File
+read -r -p "Enter a caption for your backup (e.g., your domain): " caption
+[[ -z "$caption" ]] && caption="Backup"
+
+# Step 4: Cronjob Schedule
+while true; do
+    echo "Choose the schedule for periodic backups:"
+    echo "1. Every 3 hours"
+    echo "2. Every 6 hours"
+    read -r -p "Enter your choice (1 or 2): " cron_choice
+    case "$cron_choice" in
+        1) cron_time="0 */3 * * *"; break ;;
+        2) cron_time="0 */6 * * *"; break ;;
+        *) echo "Invalid choice. Please enter 1 or 2." ;;
+    esac
+done
+
+# Step 5: Backup Software Selection
+while [[ -z "$software_choice" ]]; do
+    read -r -p "Choose the software to back up (x-ui, Marzban, Hiddify) [x/m/h]: " software_choice
+    case "$software_choice" in
+        x|m|h) ;;
+        *) echo "Invalid choice. Please enter x, m, or h."; software_choice="" ;;
+    esac
+done
+
+# Step 6: Clear Previous Cronjobs
+read -r -p "Do you want to clear previous cronjobs? [y/n]: " clear_cron
+if [[ "$clear_cron" == "y" ]]; then
+    crontab -l | grep -vE 'backup-HMX.sh' | crontab -
+    echo "Previous cronjobs cleared."
 fi
 
-# Step 15: Run the backup script
-bash "/root/backup-HMX-${xmh}.sh"
+# Step 7: Backup Logic
+BACKUP_FILE=""
+case "$software_choice" in
+    m)
+        echo "Performing Marzban backup..."
+        dir=$(find /opt /root -type d -iname "marzban" -print -quit)
+        if [[ -z "$dir" ]]; then
+            echo "Error: Marzban directory not found."
+            exit 1
+        fi
 
-# Step 16: Clean up
-rm -f /root/backup-HMX-${xmh}.sh /root/backup-HMX-${xmh}.zip
+        # Prompt for MySQL root password if not set
+        if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
+            read -r -s -p "Enter MySQL root password: " MYSQL_ROOT_PASSWORD
+            echo
+        fi
 
-echo -e "\nBackup process completed successfully! The backup has been sent to Telegram."
-echo -e "To access the menu anytime, type 'menux' in your terminal."
+        if [[ -d "/var/lib/marzban/mysql" ]]; then
+            echo "MySQL detected. Preparing database backup..."
+            docker exec marzban-mysql-1 bash -c "
+                mkdir -p /var/lib/mysql/db-backup
+                databases=\$(mysql -uroot -p\$MYSQL_ROOT_PASSWORD -e 'SHOW DATABASES;' | grep -v -E '(Database|mysql|performance_schema|sys|information_schema)')
+                for db in \$databases; do
+                    mysqldump -uroot -p\$MYSQL_ROOT_PASSWORD \$db > /var/lib/mysql/db-backup/\$db.sql
+                done
+            "
+        fi
+
+        zip -r /root/backup-HMX.zip /opt/marzban /var/lib/marzban
+        BACKUP_FILE="/root/backup-HMX.zip"
+        backup_caption="Marzban Backup"
+        ;;
+    x)
+        echo "Performing x-ui backup..."
+        db_dir=$(find /etc -type d -iname "x-ui*" -print -quit)
+        config_dir=$(find /usr/local -type d -iname "x-ui*" -print -quit)
+        zip /root/backup-HMX-x.zip "$db_dir/x-ui.db" "$config_dir/config.json"
+        BACKUP_FILE="/root/backup-HMX-x.zip"
+        backup_caption="x-ui Backup"
+        ;;
+    h)
+        echo "Performing Hiddify backup..."
+        read -r -p "Enter Hiddify API Key: " api_key
+        read -r -p "Enter IP/Proxy Path: " ip_proxy_path
+
+        response=$(curl -s -o /root/backup-HMX-h.zip -w "%{http_code}" -X POST \
+            "https://api.hiddify.xyz/api/backup" \
+            -H "Authorization: Bearer $api_key" \
+            -d "ip_proxy=$ip_proxy_path")
+
+        if [[ "$response" != "200" ]]; then
+            echo "Hiddify backup failed. HTTP response code: $response"
+            send_telegram_message "❌ Hiddify backup failed."
+            exit 1
+        fi
+
+        BACKUP_FILE="/root/backup-HMX-h.zip"
+        backup_caption="Hiddify Backup"
+        ;;
+esac
+
+# Step 8: Schedule Cronjob
+(crontab -l | grep -v "/root/backup-HMX.sh"; echo "$cron_time /root/backup-HMX.sh") | crontab -
+echo "Cronjob scheduled: $cron_time"
+
+# Step 9: Notify Telegram
+if [[ -f "$BACKUP_FILE" ]]; then
+    send_telegram_message "✅ Backup completed successfully: $backup_caption"
+    send_telegram_file "$BACKUP_FILE"
+    echo "Backup completed and sent to Telegram."
+else
+    send_telegram_message "❌ Backup failed: $backup_caption"
+    echo "Backup failed."
+fi
