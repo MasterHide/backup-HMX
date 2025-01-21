@@ -1,4 +1,4 @@
-# backup-HMX
+# backup-HMX    TEST
 Backup script for database and user data fetch
 
 Install (still in development)
