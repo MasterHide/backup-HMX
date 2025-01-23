@@ -173,43 +173,70 @@ EOL
         ;;
     2)
         xmh="x"
-        xmh_choice_name="x-ui"
-        echo "You selected x-ui."
+xmh_choice_name="x-ui"
+echo "You selected x-ui."
 
-        # Step 6: x-ui Backup Logic
-        echo "Performing x-ui backup..."
+# Step 6: x-ui Backup Logic
+echo "Performing x-ui backup..."
 
-        # Search for the database and configuration directories
-        dbDir=$(find /etc -type d -iname "x-ui*" -print -quit)
-        configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit)
+# x-ui backup
+# Create a backup for x-ui software and send it to Telegram
 
-        # Validate that both directories are found
-        if [[ -z "$dbDir" ]]; then
-            echo "Error: x-ui database directory not found."
-            exit 1
-        fi
-        if [[ -z "$configDir" ]]; then
-            echo "Error: x-ui configuration directory not found."
-            exit 1
-        fi
+# Check if x-ui database directory exists
+if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
+  echo "The folder exists at $dbDir"
+  
+  # Adjust path if located in /opt/freedom/x-ui
+  if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
+     dbDir="${dbDir}/db/"
+  fi
+else
+  echo "The folder does not exist."
+  exit 1
+fi
 
-        # Locate JSON files in the database directory
-        json_file=$(find "$dbDir" -type f -name "*.json" -print -quit)
+# Check if x-ui config directory exists
+if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
+  echo "The folder exists at $configDir"
+else
+  echo "The folder does not exist."
+  exit 1
+fi
 
-        # Validate that a JSON file exists
-        if [[ -z "$json_file" || ! -f "$json_file" ]]; then
-            echo "Error: No valid JSON backup files found in $dbDir."
-            exit 1
-        fi
+# Backup logic: copy the configuration and database files
+# Sending both the config and database directory as backup
+latest_backup_dir="/tmp/x-ui-backup"
 
-        # Send the JSON backup file to Telegram
-        curl -F chat_id="${chatid}" \
-            -F caption="${caption} - x-ui Backup" \
-            -F parse_mode="HTML" \
-            -F document=@"$json_file" \
-            https://api.telegram.org/bot${tk}/sendDocument
+# Create a temporary backup directory
+mkdir -p "$latest_backup_dir"
 
-        echo "Backup file sent to Telegram successfully."
+# Copy database files
+cp -r "$dbDir" "$latest_backup_dir"
+
+# Copy configuration files
+cp -r "$configDir" "$latest_backup_dir"
+
+# Check if the backup files were copied successfully
+if [[ ! -d "$latest_backup_dir" ]]; then
+  echo "Error: Backup creation failed."
+  exit 1
+fi
+
+# Now, zip the backup directory (because Telegram API can't send directories directly)
+backup_file="/tmp/x-ui-backup.zip"
+zip -r "$backup_file" "$latest_backup_dir"
+
+# Send the backup file to Telegram
+curl -F chat_id="${chatid}" \
+    -F caption="${caption} - x-ui Backup" \
+    -F parse_mode="HTML" \
+    -F document=@"$backup_file" \
+    "https://api.telegram.org/bot${tk}/sendDocument"
+
+# Clean up the temporary backup directory and backup file
+rm -rf "$latest_backup_dir" "$backup_file"
+
+echo "Backup file sent to Telegram successfully."
         ;;
     3)
         xmh="h"
