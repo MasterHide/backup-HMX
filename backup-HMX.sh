@@ -287,41 +287,37 @@ echo "Failed to send backup file for ${xmh_choice_name} to Telegram. Response: $
 exit 1
 fi
 
-# Schedule the backup script with the correct path
-backup_script_path="/root/backup-HMX-${xmh}.sh"
-;;
-*)
-echo "Invalid choice. Exiting."
-exit 1
-;;
-esac
-
-# Check if the backup script exists before scheduling the cron job
+# Check if the backup script exists
 if [[ ! -f "$backup_script_path" ]]; then
-echo "Error: Backup script $backup_script_path not found. Exiting."
-exit 1
+    echo "Error: Backup script $backup_script_path not found. Exiting."
+    exit 1
 fi
 
-# Ask if the user wants to remove old cron jobs
+# Ask the user whether to remove old cron jobs
 while true; do
-read -r -p "Do you want to remove old cron job data before adding the new one? (y/n): " remove_old_cron
-if [[ "$remove_old_cron" == "y" ]]; then
-echo "Removing old cron jobs..."
-crontab -r # Remove all cron jobs
-echo "Old cron jobs have been removed."
-break
-elif [[ "$remove_old_cron" == "n" ]]; then
-echo "Skipping removal of old cron jobs. Continuing with the new cron job."
-break
-else
-echo "Invalid choice. Please enter 'y' or 'n'."
-fi
+    read -r -p "Do you want to remove old cron job data before adding the new one? (y/n): " remove_old_cron
+    if [[ "$remove_old_cron" == "y" ]]; then
+        echo "Removing old cron jobs related to the backup script..."
+        crontab -l 2>/dev/null | grep -v "$backup_script_path" | crontab -
+        echo "Old cron jobs related to the backup script have been removed."
+        break
+    elif [[ "$remove_old_cron" == "n" ]]; then
+        echo "Skipping removal of old cron jobs. Continuing with the new cron job."
+        break
+    else
+        echo "Invalid choice. Please enter 'y' or 'n'."
+    fi
 done
 
-# Add the cron job to schedule the backup at the chosen interval
-(crontab -l 2>/dev/null; echo "$cron_time $backup_script_path") | crontab -
-
-echo "Cron job has been successfully added."
+# Add the cron job if it doesn't already exist
+if ! crontab -l 2>/dev/null | grep -q "$cron_time $backup_script_path"; then
+    (crontab -l 2>/dev/null; echo "$cron_time $backup_script_path >> /var/log/backup-HMX-${xmh}.log 2>&1") | crontab -
+    echo "Cron job has been successfully added."
+    echo "Scheduled backup script: $backup_script_path"
+    echo "Schedule: $cron_time"
+else
+    echo "Cron job already exists. Skipping addition."
+fi
 
 # Step 6: Add 'menux' Command (Optional)
 read -r -p "Create 'menux' command to restore backup? [y/n]: " create_menux
