@@ -203,40 +203,37 @@ else
   exit 1
 fi
 
-# Backup logic: copy the configuration and database files
-# Sending both the config and database directory as backup
-latest_backup_dir="/tmp/x-ui-backup"
+# Backup logic: only send the latest x-ui.db and config.json files
+latest_backup_files=()
 
-# Create a temporary backup directory
-mkdir -p "$latest_backup_dir"
-
-# Copy database files
-cp -r "$dbDir" "$latest_backup_dir"
-
-# Copy configuration files
-cp -r "$configDir" "$latest_backup_dir"
-
-# Check if the backup files were copied successfully
-if [[ ! -d "$latest_backup_dir" ]]; then
-  echo "Error: Backup creation failed."
+# Find the latest 'x-ui.db' file in the database directory
+latest_backup_file_db=$(find "$dbDir" -type f -name "x-ui.db" -print -quit)
+if [[ -n "$latest_backup_file_db" ]]; then
+  latest_backup_files+=("$latest_backup_file_db")
+else
+  echo "Error: No x-ui.db file found."
   exit 1
 fi
 
-# Now, zip the backup directory (because Telegram API can't send directories directly)
-backup_file="/tmp/x-ui-backup.zip"
-zip -r "$backup_file" "$latest_backup_dir"
+# Find the 'config.json' file in the config directory
+latest_backup_file_config=$(find "$configDir" -type f -name "config.json" -print -quit)
+if [[ -n "$latest_backup_file_config" ]]; then
+  latest_backup_files+=("$latest_backup_file_config")
+else
+  echo "Error: No config.json file found."
+  exit 1
+fi
 
-# Send the backup file to Telegram
-curl -F chat_id="${chatid}" \
-    -F caption="${caption} - x-ui Backup" \
-    -F parse_mode="HTML" \
-    -F document=@"$backup_file" \
-    "https://api.telegram.org/bot${tk}/sendDocument"
+# Send both the x-ui.db and config.json files to Telegram
+for backup_file in "${latest_backup_files[@]}"; do
+  curl -F chat_id="${chatid}" \
+       -F caption="${caption} - x-ui Backup" \
+       -F parse_mode="HTML" \
+       -F document=@"$backup_file" \
+       "https://api.telegram.org/bot${tk}/sendDocument"
+done
 
-# Clean up the temporary backup directory and backup file
-rm -rf "$latest_backup_dir" "$backup_file"
-
-echo "Backup file sent to Telegram successfully."
+echo "Backup files sent to Telegram successfully."
         ;;
     3)
         xmh="h"
