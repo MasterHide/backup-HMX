@@ -287,7 +287,10 @@ echo "Failed to send backup file for ${xmh_choice_name} to Telegram. Response: $
 exit 1
 fi
 
-# Check if the backup script exists
+# Close previous case/esac block if applicable
+esac
+
+# Ensure the backup script exists
 if [[ ! -f "$backup_script_path" ]]; then
     echo "Error: Backup script $backup_script_path not found. Exiting."
     exit 1
