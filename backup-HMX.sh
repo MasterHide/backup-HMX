@@ -57,30 +57,57 @@ chatid=$(validate_non_empty "Chat ID")
 echo "Step 3: Enter a caption for your backup (e.g., your domain)."
 caption=$(validate_non_empty "Caption")
 
-# Step 4: Choose Backup Interval (1 minute, 3 hours, or 6 hours)
-echo "Step 4: Choose the interval for periodic backups."
+# Define backup script path
+BACKUP_SCRIPT_PATH="/root/backup-HMX-${xmh}.sh"
+
+# Select Backup Interval
+echo "Choose backup interval:"
 echo "1. Every 1 minute"
 echo "2. Every 3 hours"
 echo "3. Every 6 hours"
-read -r -p "Enter your choice (1, 2, or 3): " interval_choice
+echo "4. Custom time (minute and hour)"
+read -r -p "Enter your choice (1-4): " choice
 
-case "$interval_choice" in
+case "$choice" in
 1)
-cron_time="* * * * *" # Every 1 minute
-;;
+    cron_time="* * * * *"  # Every 1 minute
+    ;;
 2)
-cron_time="0 */3 * * *" # Every 3 hours
-;;
+    cron_time="0 */3 * * *"  # Every 3 hours
+    ;;
 3)
-cron_time="0 */6 * * *" # Every 6 hours
-;;
+    cron_time="0 */6 * * *"  # Every 6 hours
+    ;;
+4)
+    # Allow custom minute and hour input
+    while true; do
+        echo "Enter custom cron time (minute hour, e.g. '30 6' for 6:30 AM):"
+        read -r minute hour
+        if [[ $minute =~ ^[0-9]+$ ]] && [[ $minute -lt 60 ]] && [[ $hour =~ ^[0-9]+$ ]] && [[ $hour -lt 24 ]]; then
+            cron_time="*/${minute} */${hour} * * *"
+            break
+        else
+            echo "Invalid input. Please enter valid minute and hour (0-59 for minute, 0-23 for hour)."
+        fi
+    done
+    ;;
 *)
-echo "Invalid choice. Please enter 1, 2, or 3."
-exit 1
-;;
+    echo "Invalid choice."
+    exit 1
+    ;;
 esac
 
-echo "Backup will be scheduled every $cron_time."
+# Remove old cron job if it exists
+crontab -l | grep -v "$BACKUP_SCRIPT_PATH" | crontab -
+
+# Add new cron job for scheduled backup
+{ crontab -l; echo "${cron_time} /bin/bash $BACKUP_SCRIPT_PATH >/dev/null 2>&1"; } | crontab -
+
+# Run the backup script immediately
+bash "$BACKUP_SCRIPT_PATH"
+
+echo "Cron job scheduled: $cron_time"
+echo "Backup script will run according to the selected schedule."
 
 # Step 5: Choose Software to Backup
 echo "Step 5: Choose the software to back up."
@@ -291,53 +318,23 @@ fi
 esac
 
 # Define the backup script path
-backup_script_path="/root/backup-HMX-${xmh}.sh"
+BACKUP_SCRIPT_PATH="/root/backup-HMX-${xmh}.sh"
 
-# Check if the backup script exists; create it if not
-if [[ ! -f "$backup_script_path" ]]; then
-    echo "Backup script $backup_script_path not found. Creating it..."
-    cat <<EOL > "$backup_script_path"
-#!/bin/bash
-# Backup script for HMX-${xmh}
-# Add your backup commands here, for example:
-echo "Starting backup for HMX-${xmh} at \$(date)"
-# Example backup commands (customize as needed):
-tar -czf /root/backup-HMX-${xmh}-\$(date +%Y%m%d).tar.gz /path/to/data
-echo "Backup completed for HMX-${xmh} at \$(date)"
-EOL
-    chmod +x "$backup_script_path" # Make the script executable
-    echo "Backup script created at $backup_script_path."
-fi
-
-# Ask the user whether to remove old cron jobs
-while true; do
-    read -r -p "Do you want to remove old cron job data before adding the new one? (y/n): " remove_old_cron
-    if [[ "$remove_old_cron" == "y" ]]; then
-        echo "Removing old cron jobs related to the backup script..."
-        crontab -l 2>/dev/null | grep -v "$backup_script_path" | crontab -
-        echo "Old cron jobs related to the backup script have been removed."
-        break
-    elif [[ "$remove_old_cron" == "n" ]]; then
-        echo "Skipping removal of old cron jobs. Continuing with the new cron job."
-        break
-    else
-        echo "Invalid choice. Please enter 'y' or 'n'."
-    fi
-done
-
-# Add the cron job directly
-{ crontab -l -u root 2>/dev/null; echo "${cron_time} /bin/bash $backup_script_path >/dev/null 2>&1"; } | crontab -u root -
-echo "Cron job has been successfully added."
-echo "Scheduled backup script: $backup_script_path"
-echo "Schedule: $cron_time"
+# Add cronjob to crontab (ensure it doesn't overwrite existing cron jobs)
+{ crontab -l | grep -v "$BACKUP_SCRIPT_PATH"; echo "${cron_time} /bin/bash $BACKUP_SCRIPT_PATH >/dev/null 2>&1"; } | crontab -
 
 # Run the backup script immediately
-echo "Running the backup script now..."
-/bin/bash "$backup_script_path"
-if [[ $? -eq 0 ]]; then
-    echo "Backup script executed successfully."
-else
-    echo "Error: Backup script failed to execute."
+bash "$BACKUP_SCRIPT_PATH"
+
+# Confirmation message
+echo "Cron job successfully scheduled with the following timing: $cron_time"
+echo "Backup will run according to the selected interval."
+
+# Optional: You can add additional checks to ensure everything is working correctly
+# For example, checking if the script exists:
+if [ ! -f "$BACKUP_SCRIPT_PATH" ]; then
+    echo "Error: Backup script not found!"
+    exit 1
 fi
 
 # Step 6: Add 'menux' Command (Optional)
