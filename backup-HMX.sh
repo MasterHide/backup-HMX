@@ -80,50 +80,147 @@ echo "3. Hiddify"
 read -r -p "Enter your choice (1, 2, or 3): " xmh_choice
 
 case "$xmh_choice" in
-    1) 
+    1)
         xmh="m"
         xmh_choice_name="Marzban"
         echo "You selected Marzban."
+
+        # Step 6: Marzban Backup Logic
+        echo "Performing Marzban backup..."
+
+        # Check for Marzban directory
+        if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
+            echo "The folder exists at $dir"
+        else
+            echo "The folder does not exist."
+            exit 1
+        fi
+
+        # Validate MySQL directory and proceed with backup
+        if [ -d "/var/lib/marzban/mysql" ]; then
+            # Sanitize the .env file
+            sed -i -e 's/\s*=\s*/=/' -e 's/\s*:\s*/:/' -e 's/^\s*//' /opt/marzban/.env
+
+            # Ensure backup directory exists inside the Docker container
+            docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/mysql/db-backup"
+            
+            # Check if Docker container is running
+            if ! docker ps --format '{{.Names}}' | grep -q "^marzban-mysql-1$"; then
+                echo "Error: Docker container 'marzban-mysql-1' is not running."
+                exit 1
+            fi
+
+            # Source the .env file for MySQL credentials
+            source /opt/marzban/.env
+
+            # Check MYSQL_ROOT_PASSWORD environment variable
+            if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
+                echo "Error: MYSQL_ROOT_PASSWORD is missing in the .env file."
+                exit 1
+            fi
+
+            # Create the database backup script inside the MySQL container
+            docker exec marzban-mysql-1 bash -c "cat > /var/lib/mysql/db-backup/backup-HMX.sh" <<EOL
+#!/bin/bash
+
+USER="root"
+PASSWORD="$MYSQL_ROOT_PASSWORD"
+
+databases=\$(mysql -h 127.0.0.1 --user=\$USER --password=\$PASSWORD -e "SHOW DATABASES;" | tr -d "| " | grep -v Database)
+
+for db in \$databases; do
+    if [[ "\$db" != "information_schema" ]] && [[ "\$db" != "mysql" ]] && [[ "\$db" != "performance_schema" ]] && [[ "\$db" != "sys" ]] ; then
+        echo "Dumping database: \$db"
+        mysqldump -h 127.0.0.1 --force --opt --user=\$USER --password=\$PASSWORD --databases \$db > /var/lib/mysql/db-backup/\$db.sql
+    fi
+done
+EOL
+
+            # Set execute permission for the backup script
+            docker exec marzban-mysql-1 bash -c "chmod +x /var/lib/mysql/db-backup/backup-HMX.sh"
+
+            # Run the backup script
+            docker exec marzban-mysql-1 bash -c "/var/lib/mysql/db-backup/backup-HMX.sh"
+
+            # Find the latest SQL backup file
+            backup_dir="/var/lib/marzban/mysql/db-backup"
+            latest_file=$(docker exec marzban-mysql-1 bash -c "ls -t $backup_dir/*.sql 2>/dev/null | head -n1")
+
+            # Validate that a backup file was created
+            if [[ -z "$latest_file" ]]; then
+                echo "Error: No backup file found in $backup_dir."
+                exit 1
+            fi
+
+            # Download the backup file from the container
+            docker cp marzban-mysql-1:"$latest_file" /tmp/
+
+            # Send the backup file to Telegram
+            curl -F chat_id="${chatid}" \
+                -F caption="${caption} - Marzban Database Backup" \
+                -F parse_mode="HTML" \
+                -F document=@"/tmp/$(basename "$latest_file")" \
+                https://api.telegram.org/bot${tk}/sendDocument
+
+            # Clean up the temporary file
+            rm -f "/tmp/$(basename "$latest_file")"
+
+            echo "Backup file sent to Telegram successfully."
+        else
+            echo "MySQL directory not found for Marzban."
+            exit 1
+        fi
         ;;
-    2) 
+    2)
         xmh="x"
         xmh_choice_name="x-ui"
         echo "You selected x-ui."
+
+        # Step 6: x-ui Backup Logic
+        echo "Performing x-ui backup..."
+
+        # Search for the database and configuration directories
+        dbDir=$(find /etc -type d -iname "x-ui*" -print -quit)
+        configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit)
+
+        # Validate that both directories are found
+        if [[ -z "$dbDir" ]]; then
+            echo "Error: x-ui database directory not found."
+            exit 1
+        fi
+        if [[ -z "$configDir" ]]; then
+            echo "Error: x-ui configuration directory not found."
+            exit 1
+        fi
+
+        # Locate JSON files in the database directory
+        json_file=$(find "$dbDir" -type f -name "*.json" -print -quit)
+
+        # Validate that a JSON file exists
+        if [[ -z "$json_file" || ! -f "$json_file" ]]; then
+            echo "Error: No valid JSON backup files found in $dbDir."
+            exit 1
+        fi
+
+        # Send the JSON backup file to Telegram
+        curl -F chat_id="${chatid}" \
+            -F caption="${caption} - x-ui Backup" \
+            -F parse_mode="HTML" \
+            -F document=@"$json_file" \
+            https://api.telegram.org/bot${tk}/sendDocument
+
+        echo "Backup file sent to Telegram successfully."
         ;;
-    3) 
+    3)
         xmh="h"
         xmh_choice_name="Hiddify"
         echo "You selected Hiddify."
-        ;;
-    *) 
-        echo "Invalid choice. Exiting."
-        exit 1
-        ;;
-esac
 
-# Step 6: Backup Logic Based on Software Chosen
-case "$xmh" in
-    "m")
-        echo "Performing Marzban backup..."
-        dir=$(find /opt /root -type d -iname "marzban" -print -quit)
-        validate_directory "$dir"
-        echo "The Marzban directory is at $dir"
-        # Add Marzban-specific backup logic here...
-        ;;
-    "x")
-        echo "Performing x-ui backup..."
-        dbDir=$(find /etc -type d -iname "x-ui*" -print -quit)
-        configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit)
-        validate_directory "$dbDir"
-        validate_directory "$configDir"
-        # Add x-ui-specific backup logic here...
-        ;;
-    "h")
-        echo "Performing Hiddify backup..."
+        # Step 6: Hiddify Backup Logic
         validate_directory "$BACKUP_DIR_HIDDIFY"
         latest_file=$(ls -t "$BACKUP_DIR_HIDDIFY"/*.json 2>/dev/null | head -n1)
-        if [[ -z "$latest_file" ]]; then
-            echo "No backup files found!"
+        if [[ -z "$latest_file" || ! -f "$latest_file" ]]; then
+            echo "Error: No valid backup file found in $BACKUP_DIR_HIDDIFY."
             exit 1
         fi
         echo "Found the latest backup file: $latest_file"
@@ -150,6 +247,10 @@ case "$xmh" in
             exit 1
         fi
         ;;
+    *)
+        echo "Invalid choice. Exiting."
+        exit 1
+        ;;
 esac
 
 # Step 7: Add IP to Caption
@@ -160,10 +261,16 @@ caption="${caption}\n\nBackup from ${xmh_choice_name} - IP: ${IP}"
 check_utility "curl"
 check_utility "git"
 
-# Step 9: Add cronjob for periodic execution
-script_path="/root/backup-HMX-${xmh}.sh"
-(crontab -l -u root | grep -v "$script_path"; echo "${cron_time} /bin/bash $script_path >/dev/null 2>&1") | crontab -u root -
-echo "Cronjob added for periodic execution."
+# Step 9: Setup Cronjob for Periodic Backups
+echo "Step 9: Setting up cronjob for periodic backups..."
+if [[ ! -f "$script_path" ]]; then
+    echo "Error: Backup script $script_path does not exist."
+    exit 1
+fi
+cronjob="* * * * * $script_path"
+(crontab -l ; echo "$cronjob") | crontab -
+
+echo "Cronjob has been successfully added."
 
 # Step 10: Clone or Update Repository
 if [[ ! -d "$REPO_DIR" ]]; then
