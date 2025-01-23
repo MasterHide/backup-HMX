@@ -180,7 +180,6 @@ else
 echo "MySQL directory not found for Marzban."
 exit 1
 fi
-;;
 
 # Schedule the backup script with the correct path
 backup_script_path="/root/backup-HMX-${xmh}.sh"
@@ -248,7 +247,7 @@ curl -F chat_id="${chatid}" \
 done
 
 echo "Backup files sent to Telegram successfully."
-;;
+
 # Schedule the backup script with the correct path
 backup_script_path="/root/backup-HMX-${xmh}.sh"
 ;;
@@ -287,7 +286,6 @@ else
 echo "Failed to send backup file for ${xmh_choice_name} to Telegram. Response: $response"
 exit 1
 fi
-;;
 
 # Schedule the backup script with the correct path
 backup_script_path="/root/backup-HMX-${xmh}.sh"
