@@ -290,10 +290,23 @@ fi
 # Close previous case/esac block if applicable
 esac
 
-# Ensure the backup script exists
+# Define the backup script path
+backup_script_path="/root/backup-HMX-${xmh}.sh"
+
+# Check if the backup script exists; create it if not
 if [[ ! -f "$backup_script_path" ]]; then
-    echo "Error: Backup script $backup_script_path not found. Exiting."
-    exit 1
+    echo "Backup script $backup_script_path not found. Creating it..."
+    cat <<EOL > "$backup_script_path"
+#!/bin/bash
+# Backup script for HMX-${xmh}
+# Add your backup commands here, for example:
+echo "Starting backup for HMX-${xmh} at \$(date)"
+# Example backup commands (customize as needed):
+tar -czf /root/backup-HMX-${xmh}-\$(date +%Y%m%d).tar.gz /path/to/data
+echo "Backup completed for HMX-${xmh} at \$(date)"
+EOL
+    chmod +x "$backup_script_path" # Make the script executable
+    echo "Backup script created at $backup_script_path."
 fi
 
 # Ask the user whether to remove old cron jobs
@@ -312,14 +325,19 @@ while true; do
     fi
 done
 
-# Add the cron job if it doesn't already exist
-if ! crontab -l 2>/dev/null | grep -q "$cron_time $backup_script_path"; then
-    (crontab -l 2>/dev/null; echo "$cron_time $backup_script_path >> /var/log/backup-HMX-${xmh}.log 2>&1") | crontab -
-    echo "Cron job has been successfully added."
-    echo "Scheduled backup script: $backup_script_path"
-    echo "Schedule: $cron_time"
+# Add the cron job directly
+{ crontab -l -u root 2>/dev/null; echo "${cron_time} /bin/bash $backup_script_path >/dev/null 2>&1"; } | crontab -u root -
+echo "Cron job has been successfully added."
+echo "Scheduled backup script: $backup_script_path"
+echo "Schedule: $cron_time"
+
+# Run the backup script immediately
+echo "Running the backup script now..."
+/bin/bash "$backup_script_path"
+if [[ $? -eq 0 ]]; then
+    echo "Backup script executed successfully."
 else
-    echo "Cron job already exists. Skipping addition."
+    echo "Error: Backup script failed to execute."
 fi
 
 # Step 6: Add 'menux' Command (Optional)
