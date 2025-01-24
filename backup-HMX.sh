@@ -23,31 +23,49 @@ validate_directory() {
     fi
 }
 
-# Function to create a cron job based on user choice
-create_cron_job() {
-    local software_choice="$1"
-    local cron_interval="$2"
-    local cron_command="/root/backup-HMX.sh $software_choice"
+# Detect Paths Dynamically for Marzban
+detect_marzban_path() {
+    if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
+        echo "Marzban detected at: $dir"
+        MARZBAN_PATH="$dir"
+    else
+        echo "Error: Marzban not found on this system."
+        exit 1
+    fi
+}
 
-    case "$cron_interval" in
-        "59sec")
-            cron_schedule="* * * * * $cron_command"
-            ;;
-        "3h")
-            cron_schedule="0 */3 * * * $cron_command"
-            ;;
-        "6h")
-            cron_schedule="0 */6 * * * $cron_command"
-            ;;
-        *)
-            echo "Invalid interval selection."
-            exit 1
-            ;;
-    esac
+# Detect Paths Dynamically for x-ui
+detect_xui_path() {
+    if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
+        if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
+            dbDir="${dbDir}/db/"
+        fi
+        echo "x-ui database detected at: $dbDir"
+    else
+        echo "Error: x-ui database folder not found."
+        exit 1
+    fi
 
-    # Add the cron job if it does not exist
-    (crontab -l 2>/dev/null; echo "$cron_schedule") | crontab -
-    echo "Cron job created for software: $software_choice with interval: $cron_interval"
+    if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
+        echo "x-ui configuration detected at: $configDir"
+    else
+        echo "Error: x-ui configuration folder not found."
+        exit 1
+    fi
+
+    XUI_DB_DIR="$dbDir"
+    XUI_CONFIG_DIR="$configDir"
+}
+
+# Detect Paths Dynamically for Hiddify
+detect_hiddify_path() {
+    if dir=$(find /opt -type d -name "hiddify-panel" -print -quit); then
+        echo "Hiddify detected at: $dir"
+        HIDDIFY_PATH="$dir/backup"
+    else
+        echo "Error: Hiddify not found on this system."
+        exit 1
+    fi
 }
 
 # Function for sending backup files to Telegram
@@ -79,13 +97,7 @@ send_backup_to_telegram() {
 # Marzban Backup Logic
 backup_marzban() {
     echo "Performing Marzban backup..."
-
-    if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
-        echo "The folder exists at $dir"
-    else
-        echo "The folder does not exist."
-        exit 1
-    fi
+    detect_marzban_path
 
     if [ -d "/var/lib/marzban/mysql" ]; then
         docker exec marzban-mysql-1 bash -c "mkdir -p /var/lib/mysql/db-backup"
@@ -95,7 +107,7 @@ backup_marzban() {
             exit 1
         fi
 
-        source /opt/marzban/.env
+        source "$MARZBAN_PATH/.env"
         if [[ -z "$MYSQL_ROOT_PASSWORD" ]]; then
             echo "Error: MYSQL_ROOT_PASSWORD is missing in the .env file."
             exit 1
@@ -126,26 +138,10 @@ backup_marzban() {
 # x-ui Backup Logic
 backup_xui() {
     echo "Performing x-ui backup..."
+    detect_xui_path
 
-    if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
-        echo "The folder exists at $dbDir"
-        if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
-            dbDir="${dbDir}/db/"
-        fi
-    else
-        echo "The folder does not exist."
-        exit 1
-    fi
-
-    if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
-        echo "The folder exists at $configDir"
-    else
-        echo "The folder does not exist."
-        exit 1
-    fi
-
-    latest_backup_file_db=$(find "$dbDir" -type f -name "x-ui.db" -print -quit)
-    latest_backup_file_config=$(find "$configDir" -type f -name "config.json" -print -quit)
+    latest_backup_file_db=$(find "$XUI_DB_DIR" -type f -name "x-ui.db" -print -quit)
+    latest_backup_file_config=$(find "$XUI_CONFIG_DIR" -type f -name "config.json" -print -quit)
 
     if [[ -z "$latest_backup_file_db" || -z "$latest_backup_file_config" ]]; then
         echo "Error: x-ui.db or config.json not found."
@@ -161,12 +157,12 @@ backup_xui() {
 # Hiddify Backup Logic
 backup_hiddify() {
     echo "Performing Hiddify backup..."
-    BACKUP_DIR_HIDDIFY="/opt/hiddify-manager/hiddify-panel/backup"
-    validate_directory "$BACKUP_DIR_HIDDIFY"
+    detect_hiddify_path
+    validate_directory "$HIDDIFY_PATH"
     
-    latest_file=$(ls -t "$BACKUP_DIR_HIDDIFY"/*.json 2>/dev/null | head -n1)
+    latest_file=$(ls -t "$HIDDIFY_PATH"/*.json 2>/dev/null | head -n1)
     if [[ -z "$latest_file" || ! -f "$latest_file" ]]; then
-        echo "Error: No valid backup file found in $BACKUP_DIR_HIDDIFY."
+        echo "Error: No valid backup file found in $HIDDIFY_PATH."
         exit 1
     fi
 
