@@ -10,19 +10,23 @@ check_telegram_config() {
         echo "Please provide your Telegram Bot API token and chat ID."
 
         # Prompt user for Telegram API token and chat ID
-        read -p "Enter Telegram Bot API Token: " tk
-        read -p "Enter Telegram Chat ID: " chatid
+        read -p "Enter Telegram Bot API Token: " TK
+        read -p "Enter Telegram Chat ID: " CHATID
 
         # Save the details to the config file
-        echo "TK=\"$tk\"" > "$CONFIG_FILE"
-        echo "CHATID=\"$chatid\"" >> "$CONFIG_FILE"
+        echo "TK=\"$TK\"" > "$CONFIG_FILE"
+        echo "CHATID=\"$CHATID\"" >> "$CONFIG_FILE"
     else
         # Load the configuration from the file
         source "$CONFIG_FILE"
     fi
 
+    # Debugging to check if values are being loaded correctly
+    echo "Token: $TK"
+    echo "Chat ID: $CHATID"
+
     # Validate Telegram API token and chat ID
-    if [[ -z "$tk" || -z "$chatid" ]]; then
+    if [[ -z "$TK" || -z "$CHATID" ]]; then
         echo "Error: Telegram API token and chat ID must be provided."
         exit 1
     fi
@@ -36,6 +40,9 @@ validate_directory() {
         exit 1
     fi
 }
+
+# Call the function to check and load Telegram configuration
+check_telegram_config
 
 # Marzban Backup Logic
 detect_marzban_path() {
