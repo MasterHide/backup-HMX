@@ -23,7 +23,7 @@ validate_directory() {
     fi
 }
 
-# Detect Paths Dynamically for Marzban
+# Function to detect Marzban installation
 detect_marzban_path() {
     if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
         echo "Marzban detected at: $dir"
@@ -34,7 +34,7 @@ detect_marzban_path() {
     fi
 }
 
-# Detect Paths Dynamically for x-ui
+# Function to detect x-ui installation
 detect_xui_path() {
     if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
         if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
@@ -57,7 +57,7 @@ detect_xui_path() {
     XUI_CONFIG_DIR="$configDir"
 }
 
-# Detect Paths Dynamically for Hiddify
+# Function to detect Hiddify installation
 detect_hiddify_path() {
     if dir=$(find /opt -type d -name "hiddify-panel" -print -quit); then
         echo "Hiddify detected at: $dir"
@@ -68,18 +68,17 @@ detect_hiddify_path() {
     fi
 }
 
-# Function for sending backup files to Telegram
+# Function to send backup files to Telegram
 send_backup_to_telegram() {
     local software_choice="$1"
     local backup_file="$2"
     local caption="Backup file sent successfully for $software_choice"
 
-    # Notify that the backup is being sent
+    echo "Sending backup for $software_choice to Telegram..."
     curl -s -X POST "https://api.telegram.org/bot${tk}/sendMessage" \
         -d chat_id="${chatid}" \
         -d text="Backup for $software_choice is being sent..."
 
-    # Send the actual file
     response=$(curl -s -F chat_id="${chatid}" \
         -F caption="${caption}" \
         -F parse_mode="HTML" \
@@ -94,7 +93,7 @@ send_backup_to_telegram() {
     fi
 }
 
-# Marzban Backup Logic
+# Marzban Backup
 backup_marzban() {
     echo "Performing Marzban backup..."
     detect_marzban_path
@@ -113,7 +112,6 @@ backup_marzban() {
             exit 1
         fi
 
-        # Run backup inside the container
         docker exec marzban-mysql-1 bash -c "/var/lib/mysql/db-backup/backup-HMX.sh"
 
         backup_dir="/var/lib/marzban/mysql/db-backup"
@@ -127,15 +125,13 @@ backup_marzban() {
         docker cp marzban-mysql-1:"$latest_file" /tmp/
         send_backup_to_telegram "Marzban" "/tmp/$(basename "$latest_file")"
         rm -f "/tmp/$(basename "$latest_file")"
-
-        echo "Backup file sent successfully."
     else
         echo "MySQL directory not found for Marzban."
         exit 1
     fi
 }
 
-# x-ui Backup Logic
+# x-ui Backup
 backup_xui() {
     echo "Performing x-ui backup..."
     detect_xui_path
@@ -150,16 +146,14 @@ backup_xui() {
 
     send_backup_to_telegram "x-ui" "$latest_backup_file_db"
     send_backup_to_telegram "x-ui" "$latest_backup_file_config"
-
-    echo "Backup files sent successfully."
 }
 
-# Hiddify Backup Logic
+# Hiddify Backup
 backup_hiddify() {
     echo "Performing Hiddify backup..."
     detect_hiddify_path
     validate_directory "$HIDDIFY_PATH"
-    
+
     latest_file=$(ls -t "$HIDDIFY_PATH"/*.json 2>/dev/null | head -n1)
     if [[ -z "$latest_file" || ! -f "$latest_file" ]]; then
         echo "Error: No valid backup file found in $HIDDIFY_PATH."
@@ -167,7 +161,23 @@ backup_hiddify() {
     fi
 
     send_backup_to_telegram "Hiddify" "$latest_file"
-    echo "Backup file sent successfully."
+}
+
+# Cron Job Function
+create_cron_job() {
+    local software_choice="$1"
+    local interval="$2"
+    local cron_command="/usr/local/bin/backup-HMX $software_choice"
+
+    case "$interval" in
+        "59sec") cron_schedule="* * * * * $cron_command" ;;
+        "3h")    cron_schedule="0 */3 * * * $cron_command" ;;
+        "6h")    cron_schedule="0 */6 * * * $cron_command" ;;
+        *)       echo "Invalid interval." ; exit 1 ;;
+    esac
+
+    (crontab -l 2>/dev/null; echo "$cron_schedule") | crontab -
+    echo "Cron job created for $software_choice with interval: $interval"
 }
 
 # Menu
