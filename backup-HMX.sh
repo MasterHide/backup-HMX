@@ -41,9 +41,6 @@ validate_directory() {
     fi
 }
 
-# Call the function to check and load Telegram configuration
-check_telegram_config
-
 # Marzban Backup Logic
 detect_marzban_path() {
     if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
@@ -164,11 +161,11 @@ send_backup_to_telegram() {
 
     echo "Sending backup for $software_choice to Telegram..."
 
-    response=$(curl -s -F chat_id="${chatid}" \
+    response=$(curl -s -F chat_id="${CHATID}" \
         -F caption="${caption}" \
         -F parse_mode="HTML" \
         -F document=@"$backup_file" \
-        "https://api.telegram.org/bot${tk}/sendDocument")
+        "https://api.telegram.org/bot${TK}/sendDocument")
 
     if echo "$response" | grep -q '"ok":true'; then
         echo "Backup sent to Telegram successfully for $software_choice."
@@ -182,7 +179,7 @@ send_backup_to_telegram() {
 create_cron_job() {
     local software_choice="$1"
     local interval="$2"
-    local cron_command="/usr/local/bin/backup-HMX $software_choice"
+    local cron_command="/usr/local/bin/backup-HMX.sh $software_choice"
 
     case "$interval" in
         "59sec") cron_schedule="* * * * * $cron_command" ;;
