@@ -1,20 +1,34 @@
 #!/bin/bash
 
-# Prompt user for Telegram API token and chat ID if not already set
-if [[ -z "$tk" || -z "$chatid" ]]; then
-    echo "Enter your Telegram Bot API Token:"
-    read -r tk
-    echo "Enter your Telegram Chat ID:"
-    read -r chatid
-fi
+# Configuration File Path
+CONFIG_FILE="/etc/backup-HMX.cfg"
 
-# Validate Telegram API token and chat ID
-if [[ -z "$tk" || -z "$chatid" ]]; then
-    echo "Error: Telegram API token and chat ID must be provided."
-    exit 1
-fi
+# Function to check for Telegram credentials
+check_telegram_config() {
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        echo "Telegram configuration file not found."
+        echo "Please provide your Telegram Bot API token and chat ID."
 
-# Function to validate directory existence
+        # Prompt user for Telegram API token and chat ID
+        read -p "Enter Telegram Bot API Token: " tk
+        read -p "Enter Telegram Chat ID: " chatid
+
+        # Save the details to the config file
+        echo "TK=\"$tk\"" > "$CONFIG_FILE"
+        echo "CHATID=\"$chatid\"" >> "$CONFIG_FILE"
+    else
+        # Load the configuration from the file
+        source "$CONFIG_FILE"
+    fi
+
+    # Validate Telegram API token and chat ID
+    if [[ -z "$tk" || -z "$chatid" ]]; then
+        echo "Error: Telegram API token and chat ID must be provided."
+        exit 1
+    fi
+}
+
+# Validate directory existence
 validate_directory() {
     local dir="$1"
     if [[ ! -d "$dir" ]]; then
@@ -23,7 +37,7 @@ validate_directory() {
     fi
 }
 
-# Function to detect Marzban installation
+# Marzban Backup Logic
 detect_marzban_path() {
     if dir=$(find /opt /root -type d -iname "marzban" -print -quit); then
         echo "Marzban detected at: $dir"
@@ -34,66 +48,6 @@ detect_marzban_path() {
     fi
 }
 
-# Function to detect x-ui installation
-detect_xui_path() {
-    if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
-        if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
-            dbDir="${dbDir}/db/"
-        fi
-        echo "x-ui database detected at: $dbDir"
-    else
-        echo "Error: x-ui database folder not found."
-        exit 1
-    fi
-
-    if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
-        echo "x-ui configuration detected at: $configDir"
-    else
-        echo "Error: x-ui configuration folder not found."
-        exit 1
-    fi
-
-    XUI_DB_DIR="$dbDir"
-    XUI_CONFIG_DIR="$configDir"
-}
-
-# Function to detect Hiddify installation
-detect_hiddify_path() {
-    if dir=$(find /opt -type d -name "hiddify-panel" -print -quit); then
-        echo "Hiddify detected at: $dir"
-        HIDDIFY_PATH="$dir/backup"
-    else
-        echo "Error: Hiddify not found on this system."
-        exit 1
-    fi
-}
-
-# Function to send backup files to Telegram
-send_backup_to_telegram() {
-    local software_choice="$1"
-    local backup_file="$2"
-    local caption="Backup file sent successfully for $software_choice"
-
-    echo "Sending backup for $software_choice to Telegram..."
-    curl -s -X POST "https://api.telegram.org/bot${tk}/sendMessage" \
-        -d chat_id="${chatid}" \
-        -d text="Backup for $software_choice is being sent..."
-
-    response=$(curl -s -F chat_id="${chatid}" \
-        -F caption="${caption}" \
-        -F parse_mode="HTML" \
-        -F document=@"$backup_file" \
-        "https://api.telegram.org/bot${tk}/sendDocument")
-
-    if echo "$response" | grep -q '"ok":true'; then
-        echo "Backup sent to Telegram successfully for $software_choice."
-    else
-        echo "Error: Failed to send backup file for $software_choice. Response: $response"
-        exit 1
-    fi
-}
-
-# Marzban Backup
 backup_marzban() {
     echo "Performing Marzban backup..."
     detect_marzban_path
@@ -131,7 +85,29 @@ backup_marzban() {
     fi
 }
 
-# x-ui Backup
+# x-ui Backup Logic
+detect_xui_path() {
+    if dbDir=$(find /etc /opt/freedom -type d -iname "x-ui*" -print -quit); then
+        if [[ $dbDir == *"/opt/freedom/x-ui"* ]]; then
+            dbDir="${dbDir}/db/"
+        fi
+        echo "x-ui database detected at: $dbDir"
+    else
+        echo "Error: x-ui database folder not found."
+        exit 1
+    fi
+
+    if configDir=$(find /usr/local -type d -iname "x-ui*" -print -quit); then
+        echo "x-ui configuration detected at: $configDir"
+    else
+        echo "Error: x-ui configuration folder not found."
+        exit 1
+    fi
+
+    XUI_DB_DIR="$dbDir"
+    XUI_CONFIG_DIR="$configDir"
+}
+
 backup_xui() {
     echo "Performing x-ui backup..."
     detect_xui_path
@@ -148,7 +124,17 @@ backup_xui() {
     send_backup_to_telegram "x-ui" "$latest_backup_file_config"
 }
 
-# Hiddify Backup
+# Hiddify Backup Logic
+detect_hiddify_path() {
+    if dir=$(find /opt -type d -name "hiddify-panel" -print -quit); then
+        echo "Hiddify detected at: $dir"
+        HIDDIFY_PATH="$dir/backup"
+    else
+        echo "Error: Hiddify not found on this system."
+        exit 1
+    fi
+}
+
 backup_hiddify() {
     echo "Performing Hiddify backup..."
     detect_hiddify_path
@@ -163,7 +149,29 @@ backup_hiddify() {
     send_backup_to_telegram "Hiddify" "$latest_file"
 }
 
-# Cron Job Function
+# Function to send backup files to Telegram
+send_backup_to_telegram() {
+    local software_choice="$1"
+    local backup_file="$2"
+    local caption="Backup file sent successfully for $software_choice"
+
+    echo "Sending backup for $software_choice to Telegram..."
+
+    response=$(curl -s -F chat_id="${chatid}" \
+        -F caption="${caption}" \
+        -F parse_mode="HTML" \
+        -F document=@"$backup_file" \
+        "https://api.telegram.org/bot${tk}/sendDocument")
+
+    if echo "$response" | grep -q '"ok":true'; then
+        echo "Backup sent to Telegram successfully for $software_choice."
+    else
+        echo "Error: Failed to send backup file for $software_choice. Response: $response"
+        exit 1
+    fi
+}
+
+# Create Cron Job Function
 create_cron_job() {
     local software_choice="$1"
     local interval="$2"
@@ -176,12 +184,29 @@ create_cron_job() {
         *)       echo "Invalid interval." ; exit 1 ;;
     esac
 
+    # Prompt to remove old cron jobs
+    read -p "Do you want to remove old cron jobs before adding this one? (y/n): " remove_cron
+    if [[ "$remove_cron" == "y" ]]; then
+        echo "Removing old cron jobs..."
+        crontab -r  # Remove all current cron jobs
+        echo "Old cron jobs removed."
+    elif [[ "$remove_cron" == "n" ]]; then
+        echo "Old cron jobs will not be removed."
+    else
+        echo "Invalid choice, exiting."
+        exit 1
+    fi
+
+    # Add new cron job
     (crontab -l 2>/dev/null; echo "$cron_schedule") | crontab -
     echo "Cron job created for $software_choice with interval: $interval"
 }
 
-# Menu
+# Menu Function
 menu() {
+    # Check and load Telegram credentials
+    check_telegram_config
+
     echo "Choose software for backup:"
     echo "1. Marzban"
     echo "2. x-ui"
@@ -216,4 +241,5 @@ menu() {
     fi
 }
 
+# Start the menu
 menu
